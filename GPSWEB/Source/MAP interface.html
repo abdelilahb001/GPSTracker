@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>GPS plotting</title>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/1.8.0/css/bootstrap-datepicker.min.css">
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.0/jquery.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js"></script>
+	<script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/1.8.0/js/bootstrap-datepicker.min.js"></script>
+	<meta charset="utf-8">
+	<style>
+		html, body {
+		  height: 370px;
+		  padding: 0;
+		  margin: 0;
+		  font-size: 0.9rem;
+		  }
+		#map {
+		  height: 480px;
+		  overflow: hidden;
+		  float: left;
+		  border: thin solid #333;
+		 }
+		.capture {
+		  height: 240px;
+		  overflow: hidden;
+	      float: left;
+	      background-color: #ECECFB;
+	      border: thin solid #333;
+		 }
+		.capture2 {
+		  overflow: hidden;
+	      float: left;
+	      background-color: #ECECFB;
+	      border: thin solid #333;
+		 }
+		.highlighttrip,.highlighttrip:hover {
+		  font-weight: bold;
+		}
+		.centerinner {
+  		  display: table;
+  		  margin: 0 auto;
+		}
+	</style>
+</head>
+
+<body>
+	<div class="container">
+		<div class="row">
+			<div class="col-12 col-md-6" id="map"></div>
+			<div class="col-12 col-md-6">
+				<div class="row">
+					<div class="col-7 col-md-12 col-lg-6 capture" style="text-align: center; padding-left: 2px; padding-right: 2px">
+						<div id="datepicker" data-date-format="yyyy-mm-dd" data-date-end-date="0d"  data-date-today-highlight=true style="display: inline-block;"></div>
+						<input type="hidden" id="my_hidden_input">
+					</div>
+					<div class="col-5 col-md-12 col-lg-6 capture" id="short">
+					</div>
+					<div class="col-12 d-none d-lg-block capture2" id="infoA">
+					</div>
+				</div>
+			</div>
+			<div class="col-12 d-lg-none capture2" id="infoB">
+			</div>
+		</div>
+	</div>
+
+
+	<script>
+		// See: https://developers.google.com/maps/documentation/javascript/kmllayer
+		var map;
+		var sn = getUrlParam('key', ''); 
+		var mydir= window.location.href.split('/').slice(0, -1).join('/')+'/';
+		var srcbase = mydir + 'generate_kml.php?sn=' +sn + '&rnd=';
+		var kmlLayer;
+		var desc = ''; // description tag in kml file will contain parsed json string
+		var timer = 0; // refresh kml file when we are looking at today's track
+		
+		function initMap() {
+		  // Note: the initMap function will be called from a callback function defined in mapsconfig.js
+		  map = new google.maps.Map(document.getElementById('map'), {
+		    center: new google.maps.LatLng(52.0, 5.0),
+		    zoom: 6.5,
+		    mapTypeId: 'terrain'
+		  });
+
+		  // See: https://developers.google.com/maps/documentation/javascript/reference/kml
+		  kmlLayer = new google.maps.KmlLayer(srcbase + Math.random(), {
+		    suppressInfoWindows: false,
+		    preserveViewport: false,
+		    map: map
+		  });
+
+		  // see https://developers.google.com/maps/documentation/javascript/events
+		  map.addListener('mousemove', function(e) { delayupdate(); });
+		  map.addListener('click', function(e) { delayupdate(); });
+		  map.addListener('drag', function(e) { delayupdate(); });
+		  map.addListener('zoom_changed', function(e) { delayupdate(); });
+
+		  kmlLayer.addListener('metadata_changed', function() {
+		  	// Code to run when kml data is loaded
+
+		  	// Update datepicker layout, so the user can only select dates for which we have data
+		  	desc = JSON.parse(this.metadata.description);
+		  	$('#datepicker').datepicker('setStartDate', desc.firstdate);
+		  	$('#datepicker').datepicker('setEndDate', desc.lastdate);
+		  	$('#datepicker').datepicker('update', desc.date);
+
+		  	// Show summary table in 'short' DIV
+		  	var msgcnt = desc.powererr.length + desc.chargeerr.length + desc.shockerr.length + desc.starterr.length;
+		  	$("#short").html(
+		  		'<table><tr><td>Trips:&nbsp;</td><td>'+ 
+		  		(desc.trips.length>0 ? '<b>'+desc.trips.length+'</b>' : 'None') +
+		  		'</td></tr><tr><td>Distance:&nbsp;</td><td><b>'+
+		  		(1*desc.distance.toFixed(1)) +
+		  		'</b> km </td></tr><tr><td>Duration:&nbsp;</td><td><b>'+
+		  		(desc.duration==0 ? 0 : Math.floor(desc.duration/60) + ":" + ('0'+desc.duration%60).slice(-2)) +
+		  		'</b> hrs </td></tr><tr><td>Moving:&nbsp;</td><td><b>'+
+		  		(desc.moving==0 ? 0 : Math.floor(desc.moving/60) + ":" + ('0'+desc.moving%60).slice(-2)) +
+		  		'</b> hrs </td></tr><tr><td>Pausing:&nbsp;</td><td><b>'+
+		  		(desc.duration-desc.moving==0 ? 0 : Math.floor((desc.duration-desc.moving)/60) + ":" + ('0'+(desc.duration-desc.moving)%60).slice(-2)) +
+		  		'</b> hrs </td></tr><tr><td>Events:&nbsp;</td><td>'+
+		  		(msgcnt>0 ? '<b>'+msgcnt+'</b>' : 'None')+
+		  		'</td></tr><tr><td>Points:&nbsp;</td><td><b>' + 
+		  		(desc.numpoints) + 
+		  		'</b></td></tr><tr><td>First:&nbsp;</td><td><b>' + 
+		  		(desc.firstone.gpstime ? desc.firstone.gpstime.substr(0,5) : '') + 
+		  		'</b></td></tr><tr><td>Last:&nbsp;</td><td><b>' + 
+		  		(desc.lastone.gpstime ? desc.lastone.gpstime.substr(0,5) : '') + 
+		  		'</b></td></tr></table>');
+
+		  	// Update DIV with info meta data in infoA and infoB. infoA and infoB blocks have the same data, 
+		  	// but only one is visible at any given time based on the 'lg' screen width setting in Bootstrap: 
+		  	// infoA on wide screens (1200px and more) and infoB on narrow screens (<1200px)
+		  	var txt = '<table>';
+		  	txt += eventtable1(desc.trips,'Trip Start');
+		  	txt += eventtable2(desc.starterr,'Motor Start');
+		  	txt += eventtable2(desc.powererr,'Power Lost');
+		  	txt += eventtable2(desc.chargeerr,'Charging');
+		  	txt += eventtable2(desc.shockerr,'Shock Move');
+		  	txt += '</table>';
+		  	$("#infoA").html(txt);
+		  	$("#infoB").html(txt);
+
+		  	// if we look at today's data, we will refresh the kml file once per minute (random url to overrule Google cache)
+		  	if (desc.age<1200) {
+		  		// last record less than 20 minutes old update every 60 seconds
+		  		timer = setTimeout(function() { kmlrefresh(); }, 60000);
+		  	}
+		  });
+		  
+//		  kmlLayer.addListener('click', function(event) {
+//		  	// do something when clicking on the trip path or pushpin
+//		  	var content = event.featureData.infoWindowHtml;
+//		  	$('#infotag').html(event.featureData.name);
+//	      });
+		}
+		
+		$('#datepicker').datepicker({
+			// Datepicker options, see https://bootstrap-datepicker.readthedocs.io/en/latest/options.html
+			beforeShowDay: function(date) {
+				// highligt (bold) the dates where we have GPS data that suggests our gps tracker has moved
+				var ret = "";
+				var d = formatDate(date);
+				if (Array.isArray(desc.alldates)) desc.alldates.forEach(function(entry) {
+					if (entry.value == d && entry.ismoved) ret = "highlighttrip";
+				});
+				return ret;
+			}
+		});
+		
+		$('#datepicker').on('changeDate', function() {
+			// click on a date, ensure we instruct Google servers to load the kml file from our server
+		    kmlrefresh();
+		});
+
+		function delayupdate() {
+			// stop kml update for another 30 seconds while we are moving around
+			if (timer!=0) {
+				clearTimeout(timer);
+				timer = setTimeout(function() { kmlrefresh(); }, 30000);
+			}
+		}
+
+		function kmlrefresh() {
+		  	// Stop refresh timer if it runs 
+		  	if (timer!=0) clearTimeout(timer);
+		  	timer = 0;
+			kmlLayer.setUrl(srcbase + Math.random() + '&date=' + $('#datepicker').datepicker('getFormattedDate'));
+		}
+
+		function eventtable1(eventarray, header) {
+			// returns (part of) table entries for events
+			var txt='';
+			if (eventarray.length>0) {
+		  		txt = '<tr><th>'+header+'&nbsp;</th><th>Until&nbsp;&nbsp;&nbsp;</th><th>Duration</th><th>Distance&nbsp;</th><th>Avg. Speed</th></tr>';
+			  	eventarray.forEach(function(trip) {
+			  		// dates are formatted like: 2019-05-12 12:30:32
+			  		txt += '<tr><td>' + trip.start.datetime.slice(-8,-3) + '</td><td>' + trip.end.datetime.slice(-8,-3) + '</td><td>' + (trip.duration<60 ? trip.duration : Math.floor(trip.duration/60) + " hrs " + trip.duration%60) +' min&nbsp;</td><td>' + trip.dist.toFixed(1) + ' km</td><td>' + trip.speed.toFixed(1) + ' km/h</td></tr>';
+			  	});
+			  	txt += '<tr></tr>';
+		  	}
+		  	return txt;
+		}
+
+		function eventtable2(eventarray, header) {
+			// returns (part of) table entries for events
+			var txt='';
+			if (eventarray.length>0) {
+		  		txt = '<tr><th>'+header+'&nbsp;</th><th>Until&nbsp;&nbsp;&nbsp;</th><th>Duration</th></tr>';
+			  	eventarray.forEach(function(trip) {
+			  		// dates are formatted like: 2019-05-12 12:30:32
+			  		txt += '<tr><td>' + trip.start.datetime.slice(-8,-3) + '</td><td>' + trip.end.datetime.slice(-8,-3) + '</td><td>' + (trip.duration<60 ? trip.duration : Math.floor(trip.duration/60) + " hrs " + trip.duration%60) +' min</td></tr>';
+			  	});
+			  	txt += '<tr></tr>';
+		  	}
+		  	return txt;
+		}
+		
+		function formatDate(date) {
+			// convert date to YYYY-MM-DD format
+	 	    var d = new Date(date),
+	        month = '' + (d.getMonth() + 1),
+	        day = '' + d.getDate(),
+	        year = d.getFullYear();
+
+	    	if (month.length < 2) month = '0' + month;
+	    	if (day.length < 2) day = '0' + day;
+
+		    return [year, month, day].join('-');
+		}
+		
+		function getUrlParam(parameter, defaultvalue) {
+		   // get variable name from the url
+ 		   var urlparameter = defaultvalue;
+    		if (window.location.href.indexOf(parameter) > -1) {
+		        urlparameter = getUrlVars()[parameter];
+        	}
+    		return urlparameter;
+		}
+		
+		function getUrlVars() {
+			// get all varaiables from url
+		    var vars = {};
+		    var parts = window.location.href.replace(/[?&]+([^=&]+)=([^&]*)/gi, function(m,key,value) {
+		        vars[key] = value;
+		    });
+		    return vars;
+		}
+	</script>
+	<script async defer src="mapsconfig.js">
+		// external file that contains our Google maps API key
+	</script>
+</body>
+
+</html>
